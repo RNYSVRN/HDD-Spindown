@@ -1,0 +1,47 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <!-- only for the tray icon (NotifyIcon) -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Accessing drives requires admin rights. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- WPF ThemeMode (Fluent) is marked as experimental. -->
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
+    <AssemblyName>HddSpindown</AssemblyName>
+    <Version>1.0.0</Version>
+    <Product>HDD-Spindown</Product>
+    <!-- Only ship German and English framework resources (smaller package) -->
+    <SatelliteResourceLanguages>en;de</SatelliteResourceLanguages>
+    <!-- File description of the exe: Windows shows it as the app name in notifications and Task Manager -->
+    <AssemblyTitle>HDD-Spindown</AssemblyTitle>
+    <Company>Ronny Severin</Company>
+    <Copyright>Copyright © 2026 Ronny Severin</Copyright>
+    <!-- Icon of the exe (Explorer, desktop shortcut, taskbar). Generated with tools/IconGen. -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Don't import WinForms namespaces globally (name clashes with WPF) -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- for the window and tray icon -->
+    <Resource Include="Assets\app.ico" />
+    <!-- Tray icon without the moon (all drives awake); the moon is added in the accent color when needed -->
+    <Resource Include="Assets\tray_awake.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="beforeSleep.bat" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="afterSleep.bat" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

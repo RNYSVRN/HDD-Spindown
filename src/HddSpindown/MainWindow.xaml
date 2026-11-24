@@ -1,0 +1,694 @@
+﻿<Window x:Class="HddSpindown.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:HddSpindown"
+        Title="{x:Static local:AppInfo.Title}"
+        Icon="Assets/app.ico"
+        Width="900" Height="680" MinWidth="640" MinHeight="460"
+        WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <local:OffsetConverter x:Key="Offset" />
+
+        <Style x:Key="CardBorder" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="16,14" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+
+        <Style x:Key="SecondaryText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+
+        <Style x:Key="IconText" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <!-- Custom button content (icon + text) doesn't inherit the Fluent disabled color -->
+        <Style x:Key="ButtonContent" TargetType="StackPanel">
+            <Setter Property="Orientation" Value="Horizontal" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsEnabled, RelativeSource={RelativeSource AncestorType=Button}}" Value="False">
+                    <Setter Property="Opacity" Value="0.4" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- ===== Adapting to the window width =====
+             Wide:   everything in one row, buttons with icon + text
+             Medium: one row, icon-only buttons (text as tooltip)
+             Narrow: like Medium, checkbox with an icon instead of text (tooltip explains it) -->
+        <Style x:Key="ButtonIcon" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding LayoutMode, RelativeSource={RelativeSource AncestorType=local:MainWindow}}" Value="Medium">
+                    <Setter Property="Margin" Value="0" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding LayoutMode, RelativeSource={RelativeSource AncestorType=local:MainWindow}}" Value="Narrow">
+                    <Setter Property="Margin" Value="0" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="ButtonLabel" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding LayoutMode, RelativeSource={RelativeSource AncestorType=local:MainWindow}}" Value="Medium">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding LayoutMode, RelativeSource={RelativeSource AncestorType=local:MainWindow}}" Value="Narrow">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="AutoSleepCheck" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+            <Setter Property="Content" Value="{x:Static local:Loc.AutoSleep}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding LayoutMode, RelativeSource={RelativeSource AncestorType=local:MainWindow}}" Value="Narrow">
+                    <!-- a power symbol for "at startup" instead of text -->
+                    <Setter Property="Content" Value="&#xE7E8;" />
+                    <Setter Property="ContentTemplate">
+                        <Setter.Value>
+                            <DataTemplate>
+                                <!-- The icon font sits visually high: shift down 2 px, subtle color -->
+                                <TextBlock Text="{Binding}" FontFamily="{StaticResource IconFont}" FontSize="14"
+                                           VerticalAlignment="Center" Margin="0,3,0,0"
+                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                            </DataTemplate>
+                        </Setter.Value>
+                    </Setter>
+                    <Setter Property="MinWidth" Value="0" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="CardButtons" TargetType="StackPanel">
+            <Setter Property="Orientation" Value="Horizontal" />
+            <Setter Property="Grid.Row" Value="0" />
+            <Setter Property="Grid.Column" Value="3" />
+            <Setter Property="Margin" Value="12,0,0,0" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+        </Style>
+        <!-- ===== Drive icons (line style like Segoe Fluent Icons, 24 grid) =====
+             Each icon is cropped to its actual outline (including half the stroke width):
+             Grid = visible size, Canvas with a negative margin. This way the shape starts/ends exactly at the
+             top/bottom edge of the icon area and can be aligned flush with the text. -->
+        <ControlTemplate x:Key="HddIcon" TargetType="ContentControl">
+            <Viewbox>
+                <Grid Width="16" Height="20">
+                <Canvas Width="24" Height="24" Margin="-4,-2,-4,-2">
+                    <!-- Case, large platter with hub, read arm from the top right, connector + LED at the bottom -->
+                    <Rectangle Canvas.Left="4.75" Canvas.Top="2.75" Width="14.5" Height="18.5" RadiusX="2.5" RadiusY="2.5"
+                               Stroke="{TemplateBinding Foreground}" StrokeThickness="1.5" />
+                    <Ellipse Canvas.Left="6.9" Canvas.Top="5" Width="10.2" Height="10.2"
+                             Stroke="{TemplateBinding Foreground}" StrokeThickness="1.4" />
+                    <Ellipse Canvas.Left="11" Canvas.Top="9.1" Width="2" Height="2" Fill="{TemplateBinding Foreground}" />
+                    <Path Data="M16.9,4.9 L13.6,9.6" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.5"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                    <Path Data="M8,18.25 H12" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.5"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                    <Ellipse Canvas.Left="15.1" Canvas.Top="17.35" Width="1.8" Height="1.8" Fill="{TemplateBinding Foreground}" />
+                </Canvas>
+                </Grid>
+            </Viewbox>
+        </ControlTemplate>
+        <ControlTemplate x:Key="NvmeIcon" TargetType="ContentControl">
+            <Viewbox>
+                <Grid Width="22" Height="11">
+                    <!-- Upright like the HDD: rotated by 90 degrees, contacts at the bottom -->
+                    <Grid.LayoutTransform>
+                        <RotateTransform Angle="-90" />
+                    </Grid.LayoutTransform>
+                <Canvas Width="24" Height="24" Margin="-1,-6.5,-1,-6.5">
+                    <!-- M.2 board with contacts on the left, two chips, mounting notch on the right -->
+                    <Path Data="M3,7.25 H21 A1.25,1.25 0 0 1 22.25,8.5 V10.4 A1.6,1.6 0 0 0 22.25,13.6 V15.5 A1.25,1.25 0 0 1 21,16.75 H3 A1.25,1.25 0 0 1 1.75,15.5 V8.5 A1.25,1.25 0 0 1 3,7.25 Z"
+                          Stroke="{TemplateBinding Foreground}" StrokeThickness="1.5" StrokeLineJoin="Round" />
+                    <Path Data="M4.6,7.25 V16.75" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.2" />
+                    <Rectangle Canvas.Left="6.75" Canvas.Top="9.5" Width="5.25" Height="5" RadiusX="0.5" RadiusY="0.5"
+                               Stroke="{TemplateBinding Foreground}" StrokeThickness="1.3" />
+                    <Rectangle Canvas.Left="13.5" Canvas.Top="9.5" Width="4.25" Height="5" RadiusX="0.5" RadiusY="0.5"
+                               Stroke="{TemplateBinding Foreground}" StrokeThickness="1.3" />
+                </Canvas>
+                </Grid>
+            </Viewbox>
+        </ControlTemplate>
+        <ControlTemplate x:Key="SsdIcon" TargetType="ContentControl">
+            <Viewbox>
+                <Grid Width="18" Height="16">
+                <Canvas Width="24" Height="24" Margin="-3,-4,-3,-4">
+                    <Rectangle Canvas.Left="3.75" Canvas.Top="4.75" Width="16.5" Height="14.5" RadiusX="2" RadiusY="2"
+                               Stroke="{TemplateBinding Foreground}" StrokeThickness="1.5" />
+                    <Rectangle Canvas.Left="7" Canvas.Top="8" Width="4.25" Height="4.25" RadiusX="0.6" RadiusY="0.6"
+                               Stroke="{TemplateBinding Foreground}" StrokeThickness="1.3" />
+                    <Rectangle Canvas.Left="12.75" Canvas.Top="8" Width="4.25" Height="4.25" RadiusX="0.6" RadiusY="0.6"
+                               Stroke="{TemplateBinding Foreground}" StrokeThickness="1.3" />
+                    <Path Data="M7,15.75 H17" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.5"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                </Canvas>
+                </Grid>
+            </Viewbox>
+        </ControlTemplate>
+        <!-- ===== Labels ===== -->
+        <!-- "+ Label": dashed pill -->
+        <Style x:Key="AddTagButton" TargetType="ToggleButton">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Grid Height="22" Background="Transparent">
+                            <Rectangle x:Name="Outline" RadiusX="11" RadiusY="11" StrokeThickness="1" StrokeDashArray="3 2"
+                                       Stroke="{DynamicResource TextFillColorSecondaryBrush}" />
+                            <StackPanel Orientation="Horizontal" Margin="9,0,10,0" VerticalAlignment="Center">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE710;" FontSize="9" VerticalAlignment="Center"
+                                           Margin="0,1,5,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                <TextBlock Text="{x:Static local:Loc.TagButton}" FontSize="12" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Outline" Property="Stroke" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- small x to remove, inside the label pill -->
+        <Style x:Key="TagRemoveButton" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg" Width="16" Height="16" CornerRadius="8" Background="Transparent">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE711;" FontSize="8"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource SubtleFillColorTertiaryBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Suggestion in the label menu -->
+        <Style x:Key="TagSuggestionButton" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg" Height="26" CornerRadius="13" Padding="12,0" BorderThickness="1"
+                                Background="{DynamicResource ControlFillColorDefaultBrush}"
+                                BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}">
+                            <TextBlock Text="{TemplateBinding Content}" FontSize="12" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!-- Label pill as a toggle (opens the color picker) -->
+        <Style x:Key="TagPillToggle" TargetType="ToggleButton">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border Background="Transparent" Padding="8,0,8,0">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Color picker: round swatches, the selected one with a ring -->
+        <Style x:Key="SwatchList" TargetType="ListBox">
+            <Setter Property="ItemsSource" Value="{x:Static local:TagPalette.All}" />
+            <Setter Property="SelectedValuePath" Value="Key" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="ItemsPanel">
+                <Setter.Value>
+                    <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Cursor" Value="Hand" />
+                        <Setter Property="ToolTip" Value="{Binding Label}" />
+                        <Setter Property="AutomationProperties.Name" Value="{Binding Label}" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Grid Width="30" Height="30" Margin="0,0,8,8" Background="Transparent">
+                                        <Ellipse x:Name="Ring" StrokeThickness="2" Stroke="{DynamicResource TextFillColorPrimaryBrush}" Opacity="0" />
+                                        <Ellipse Width="22" Height="22" Fill="{Binding Brush}" />
+                                        <TextBlock x:Name="Check" FontFamily="{StaticResource IconFont}" Text="&#xE73E;" FontSize="11"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="White" Visibility="Collapsed" />
+                                    </Grid>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Ring" Property="Opacity" Value="0.4" />
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="Ring" Property="Opacity" Value="1" />
+                                            <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+    <Grid x:Name="MainView" Margin="24,16,24,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="{x:Static local:Loc.HeaderTitle}" FontSize="28" FontWeight="SemiBold" />
+                <TextBlock Style="{StaticResource SecondaryText}" FontSize="13" Margin="0,4,0,0" TextWrapping="Wrap"
+                           Text="{x:Static local:Loc.HeaderSubtitle}" />
+            </StackPanel>
+            <!-- Settings: help, version, licenses, support -->
+            <Button Grid.Column="1" VerticalAlignment="Top" Margin="16,4,0,0" Padding="8"
+                    Click="Settings_Click" ToolTip="{x:Static local:Loc.Settings}"
+                    AutomationProperties.Name="{x:Static local:Loc.Settings}">
+                <TextBlock Style="{StaticResource IconText}" Text="&#xE713;" FontSize="16" />
+            </Button>
+        </Grid>
+
+        <!-- Info bar -->
+        <Border Grid.Row="1" x:Name="InfoBar" CornerRadius="6" BorderThickness="1" Padding="14,10" Margin="0,0,0,12"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" Visibility="Collapsed">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="InfoIcon" Style="{StaticResource IconText}" FontSize="16" Margin="0,0,12,0" />
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock x:Name="InfoTitle" FontWeight="SemiBold" />
+                    <TextBlock x:Name="InfoText" Style="{StaticResource SecondaryText}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Toolbar -->
+        <DockPanel Grid.Row="2" Margin="0,0,0,12" LastChildFill="False">
+            <Button x:Name="RefreshButton" DockPanel.Dock="Left" Click="Refresh_Click" ToolTip="{x:Static local:Loc.RefreshTip}">
+                <StackPanel Style="{StaticResource ButtonContent}">
+                    <TextBlock Style="{StaticResource IconText}" Text="&#xE72C;" Margin="0,0,8,0" />
+                    <TextBlock Text="{x:Static local:Loc.Refresh}" />
+                </StackPanel>
+            </Button>
+            <Button DockPanel.Dock="Right" x:Name="WakeAllButton" Click="WakeAll_Click"
+                    ToolTip="{x:Static local:Loc.WakeAllTip}">
+                <StackPanel Style="{StaticResource ButtonContent}">
+                    <TextBlock Style="{StaticResource IconText}" Text="&#xE706;" Margin="0,0,8,0" />
+                    <TextBlock Text="{x:Static local:Loc.WakeAll}" />
+                </StackPanel>
+            </Button>
+            <Button DockPanel.Dock="Right" x:Name="SleepSelectedButton" Margin="0,0,8,0" Click="SleepAuto_Click"
+                    ToolTip="{x:Static local:Loc.SleepSelectedTip}">
+                <StackPanel Style="{StaticResource ButtonContent}">
+                    <TextBlock Style="{StaticResource IconText}" Text="&#xE708;" Margin="0,0,8,0" />
+                    <TextBlock Text="{x:Static local:Loc.SleepSelected}" />
+                </StackPanel>
+            </Button>
+        </DockPanel>
+
+        <!-- Drive list -->
+        <!-- Scrollbar at the right window edge like in the settings: the ScrollViewer extends into the page margin,
+             padding moves the content back into place -->
+        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      Margin="0,0,-24,0" Padding="0,0,24,0">
+            <StackPanel>
+                <ItemsControl x:Name="DiskList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type local:DiskItem}">
+                            <Border x:Name="CardRoot">
+                                <Border.Style>
+                                    <Style TargetType="Border" BasedOn="{StaticResource CardBorder}">
+                                        <Style.Triggers>
+                                            <!-- Protected drives (NVMe/system) greyed out -->
+                                            <DataTrigger Binding="{Binding IsReadOnly}" Value="True">
+                                                <Setter Property="Opacity" Value="0.6" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <!-- Drive icon: HDD, NVMe (M.2) or SSD (2.5 inch) -->
+                                    <ContentControl Width="34" VerticalAlignment="Top" Margin="0,5,12,0"
+                                                    Height="{Binding ActualHeight, ElementName=DetailsPanel, Converter={StaticResource Offset}, ConverterParameter=-6}"
+                                                    Focusable="False" IsTabStop="False">
+                                        <ContentControl.Style>
+                                            <Style TargetType="ContentControl">
+                                                <Setter Property="Foreground" Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                                                <Setter Property="Template" Value="{StaticResource HddIcon}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Kind}" Value="Nvme">
+                                                        <Setter Property="Template" Value="{StaticResource NvmeIcon}" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Kind}" Value="Ssd">
+                                                        <Setter Property="Template" Value="{StaticResource SsdIcon}" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding IsReadOnly}" Value="True">
+                                                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </ContentControl.Style>
+                                    </ContentControl>
+
+                                    <!-- Name and details -->
+                                    <StackPanel x:Name="DetailsPanel" Grid.Column="1" VerticalAlignment="Top">
+                                        <WrapPanel>
+                                            <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"
+                                                       Margin="0,0,10,0" ToolTip="{Binding ToolTipText}" />
+
+                                            <!-- Custom labels -->
+                                            <ItemsControl ItemsSource="{Binding Tags}" VerticalAlignment="Center" Focusable="False">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="{x:Type local:TagItem}">
+                                                        <Grid x:Name="PillRoot" Height="22" Margin="0,1,6,1" Background="Transparent">
+                                                            <!-- Pill in the label color: subtle fill + border -->
+                                                            <Border CornerRadius="11" Background="{Binding Brush}" Opacity="0.2" />
+                                                            <Border CornerRadius="11" BorderThickness="1" BorderBrush="{Binding Brush}" Opacity="0.7" />
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <!-- Click on the label: change color -->
+                                                                <ToggleButton x:Name="PillBtn" Style="{StaticResource TagPillToggle}"
+                                                                              ToolTip="{x:Static local:Loc.TagChangeColor}"
+                                                                              AutomationProperties.Name="{Binding Name}">
+                                                                    <StackPanel Orientation="Horizontal">
+                                                                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8EC;" FontSize="10" VerticalAlignment="Center"
+                                                                                   Margin="0,1,5,0" Foreground="{Binding Brush}" />
+                                                                        <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center"
+                                                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                                                                    </StackPanel>
+                                                                </ToggleButton>
+                                                                <Button x:Name="RemoveTagBtn" Style="{StaticResource TagRemoveButton}" Tag="{Binding}"
+                                                                        Click="RemoveTag_Click" Margin="-4,0,4,0" Visibility="Collapsed"
+                                                                        ToolTip="{x:Static local:Loc.TagRemove}" AutomationProperties.Name="{x:Static local:Loc.TagRemove}" />
+                                                            </StackPanel>
+                                                            <Popup PlacementTarget="{Binding ElementName=PillBtn}" Placement="Bottom" StaysOpen="False"
+                                                                   AllowsTransparency="True" PopupAnimation="Fade"
+                                                                   IsOpen="{Binding IsChecked, ElementName=PillBtn, Mode=TwoWay}">
+                                                                <Border Margin="8" Padding="14,12" CornerRadius="8" BorderThickness="1" PreviewKeyDown="TagPopup_PreviewKeyDown"
+                                                                        Background="{DynamicResource SolidBackgroundFillColorTertiaryBrush}"
+                                                                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                                                                    <Border.Effect>
+                                                                        <DropShadowEffect BlurRadius="16" ShadowDepth="4" Opacity="0.3" />
+                                                                    </Border.Effect>
+                                                                    <StackPanel>
+                                                                        <TextBlock FontSize="13" FontWeight="SemiBold" Margin="0,0,0,8"
+                                                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}">
+                                                                            <Run Text="{x:Static local:Loc.TagColorFor}" />
+                                                                            <Run Text="{Binding Name, Mode=OneWay}" />
+                                                                        </TextBlock>
+                                                                        <ListBox Style="{StaticResource SwatchList}" Width="190"
+                                                                                 SelectedValue="{Binding ColorKey, Mode=OneWay}"
+                                                                                 SelectionChanged="TagColorEdit_SelectionChanged" />
+                                                                        <TextBlock Text="{x:Static local:Loc.TagColorHint}" FontSize="11" Margin="0,4,0,0"
+                                                                                   TextWrapping="Wrap" Width="190"
+                                                                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                                                                    </StackPanel>
+                                                                </Border>
+                                                            </Popup>
+                                                        </Grid>
+                                                        <DataTemplate.Triggers>
+                                                            <Trigger SourceName="PillRoot" Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="RemoveTagBtn" Property="Visibility" Value="Visible" />
+                                                            </Trigger>
+                                                        </DataTemplate.Triggers>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+
+                                            <!-- Add label (appears when hovering over the card) -->
+                                            <ToggleButton x:Name="AddTagBtn" Style="{StaticResource AddTagButton}" VerticalAlignment="Center"
+                                                          Opacity="0" Margin="0,1,0,1"
+                                                          Visibility="{Binding CanAddTag, Converter={StaticResource BoolToVis}}"
+                                                          ToolTip="{x:Static local:Loc.TagAdd}" AutomationProperties.Name="{x:Static local:Loc.TagAdd}" />
+                                            <Popup PlacementTarget="{Binding ElementName=AddTagBtn}" Placement="Bottom" StaysOpen="False"
+                                                   AllowsTransparency="True" PopupAnimation="Fade" Opened="TagPopup_Opened"
+                                                   IsOpen="{Binding IsChecked, ElementName=AddTagBtn, Mode=TwoWay}">
+                                                <Border Margin="8" Padding="16,14" Width="320" CornerRadius="8" BorderThickness="1" PreviewKeyDown="TagPopup_PreviewKeyDown"
+                                                        Background="{DynamicResource SolidBackgroundFillColorTertiaryBrush}"
+                                                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                                                    <Border.Effect>
+                                                        <DropShadowEffect BlurRadius="16" ShadowDepth="4" Opacity="0.3" />
+                                                    </Border.Effect>
+                                                    <StackPanel>
+                                                        <TextBlock Text="{x:Static local:Loc.TagsTitle}" FontSize="14" FontWeight="SemiBold" />
+                                                        <Grid Margin="0,10,0,0">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBox x:Name="TagInput" MaxLength="20" KeyDown="TagInput_KeyDown"
+                                                                     AutomationProperties.Name="{x:Static local:Loc.TagsTitle}" />
+                                                            <Button Grid.Column="1" Margin="8,0,0,0" Style="{DynamicResource AccentButtonStyle}"
+                                                                    Content="{x:Static local:Loc.TagAddShort}" Tag="{Binding ElementName=TagInput}"
+                                                                    Click="AddTag_Click" />
+                                                        </Grid>
+                                                        <TextBlock Text="{x:Static local:Loc.TagColorLabel}" FontSize="12" Margin="0,14,0,6"
+                                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                                        <ListBox x:Name="NewTagColor" Style="{StaticResource SwatchList}" SelectedIndex="0" />
+                                                        <TextBlock Text="{x:Static local:Loc.TagSuggestionsLabel}" FontSize="12" Margin="0,14,0,6"
+                                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                                        <ItemsControl ItemsSource="{x:Static local:DiskItem.TagSuggestions}" Focusable="False">
+                                                            <ItemsControl.ItemsPanel>
+                                                                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                                            </ItemsControl.ItemsPanel>
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <Button Style="{StaticResource TagSuggestionButton}" Content="{Binding}" Margin="0,0,6,6"
+                                                                            Click="TagSuggestion_Click" />
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                        <TextBlock Text="{x:Static local:Loc.TagLimit}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"
+                                                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </Popup>
+                                        </WrapPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                            <TextBlock Text="{Binding Subtitle}" Style="{StaticResource SecondaryText}"
+                                                       VerticalAlignment="Center" />
+                                            <Border Visibility="{Binding IsReadOnly, Converter={StaticResource BoolToVis}}"
+                                                    Margin="8,0,0,0" Padding="6,0" CornerRadius="4" VerticalAlignment="Center"
+                                                    Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                                                    ToolTip="{Binding ProtectedReason}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Style="{StaticResource IconText}" Text="&#xE72E;" FontSize="10" Margin="0,0,4,0" />
+                                                    <TextBlock Text="{Binding ProtectedBadge}" FontSize="11" />
+                                                </StackPanel>
+                                            </Border>
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <!-- State -->
+                                    <Border Grid.Column="2" Padding="10,4" CornerRadius="12" VerticalAlignment="Top"
+                                            Background="{DynamicResource ControlFillColorSecondaryBrush}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Ellipse Width="8" Height="8" Margin="0,0,8,0" VerticalAlignment="Center">
+                                                <Ellipse.Style>
+                                                    <Style TargetType="Ellipse">
+                                                        <Setter Property="Fill" Value="#6CCB5F" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding StateKind}" Value="Sleep">
+                                                                <Setter Property="Fill" Value="#60CDFF" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding StateKind}" Value="Locked">
+                                                                <Setter Property="Fill" Value="#FCE100" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding StateKind}" Value="Off">
+                                                                <Setter Property="Fill" Value="#9A9A9A" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Ellipse.Style>
+                                            </Ellipse>
+                                            <TextBlock Text="{Binding StateText}" FontSize="12" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Notice for protected drives -->
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,10,0,0"
+                                               Style="{StaticResource SecondaryText}" Text="{Binding ProtectedReason}"
+                                               Visibility="{Binding IsReadOnly, Converter={StaticResource BoolToVis}}" />
+                                    <!-- Controls: adapt to the window width (LayoutMode Wide/Medium/Narrow) -->
+                                    <Grid Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,12,0,0"
+                                          Visibility="{Binding ShowControls, Converter={StaticResource BoolToVis}}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+
+                                        <ComboBox Width="260"
+                                                  IsEnabled="{Binding CanChangeMode}"
+                                                  ItemsSource="{x:Static local:DiskItem.ModeOptions}"
+                                                  SelectedItem="{Binding SelectedMode, Mode=TwoWay}"
+                                                  ToolTip="{x:Static local:Loc.ModeTip}" />
+                                        <CheckBox Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center"
+                                                  Style="{StaticResource AutoSleepCheck}"
+                                                  IsEnabled="{Binding CanEdit}"
+                                                  IsChecked="{Binding AutoSleep, Mode=TwoWay}"
+                                                  ToolTip="{x:Static local:Loc.AutoSleepTip}" />
+
+                                        <StackPanel Style="{StaticResource CardButtons}">
+                                            <Button MinWidth="40" Style="{DynamicResource AccentButtonStyle}"
+                                                    IsEnabled="{Binding CanSleep}" ToolTip="{Binding SleepButtonText}"
+                                                    Click="Sleep_Click" Tag="{Binding}">
+                                                <StackPanel Style="{StaticResource ButtonContent}">
+                                                    <TextBlock Style="{StaticResource ButtonIcon}" Text="&#xE708;" />
+                                                    <TextBlock Style="{StaticResource ButtonLabel}" Text="{Binding SleepButtonText}" />
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Margin="8,0,0,0" MinWidth="40"
+                                                    IsEnabled="{Binding CanLock}"
+                                                    Visibility="{Binding ShowLockButton, Converter={StaticResource BoolToVis}}"
+                                                    ToolTip="{x:Static local:Loc.LockOnlyTip}"
+                                                    Click="Lock_Click" Tag="{Binding}">
+                                                <StackPanel Style="{StaticResource ButtonContent}">
+                                                    <TextBlock Style="{StaticResource ButtonIcon}" Text="&#xE72E;" />
+                                                    <TextBlock Style="{StaticResource ButtonLabel}" Text="{x:Static local:Loc.LockOnly}" />
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Margin="8,0,0,0" MinWidth="40" Click="Wake_Click" Tag="{Binding}"
+                                                    IsEnabled="{Binding CanWake}" ToolTip="{x:Static local:Loc.WakeTip}">
+                                                <StackPanel Style="{StaticResource ButtonContent}">
+                                                    <TextBlock Style="{StaticResource ButtonIcon}" Text="&#xE706;" />
+                                                    <TextBlock Style="{StaticResource ButtonLabel}" Text="{x:Static local:Loc.Wake}" />
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Status}"
+                                               Margin="0,8,0,0" TextWrapping="Wrap">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock" BasedOn="{StaticResource SecondaryText}">
+                                                <Style.Triggers>
+                                                    <Trigger Property="Text" Value="">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+
+                                    <!-- Progress bar at the bottom edge of the card while spinning down/waking up
+                                         (color = Windows accent color, runs until the action has finished) -->
+                                    <local:BusyBar Grid.RowSpan="3" Grid.ColumnSpan="3" VerticalAlignment="Bottom" Margin="-8,0,-8,-11"
+                                                 Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"
+                                                 AutomationProperties.Name="{Binding BusyText}" ToolTip="{Binding BusyText}" />
+                                </Grid>
+                            </Border>
+                            <DataTemplate.Triggers>
+                                <!-- "+ Label" only while hovering over the card or while the menu is open -->
+                                <Trigger SourceName="CardRoot" Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="AddTagBtn" Property="Opacity" Value="1" />
+                                </Trigger>
+                                <Trigger SourceName="AddTagBtn" Property="IsChecked" Value="True">
+                                    <Setter TargetName="AddTagBtn" Property="Opacity" Value="1" />
+                                </Trigger>
+                                <Trigger SourceName="AddTagBtn" Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="AddTagBtn" Property="Opacity" Value="1" />
+                                </Trigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock x:Name="EmptyText" Visibility="Collapsed" Style="{StaticResource SecondaryText}"
+                           Text="{x:Static local:Loc.NoDisks}" Margin="0,8" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Feedback while refreshing: floating pill with a loading ring above the drives -->
+        <Border x:Name="RefreshOverlay" Grid.Row="3" Visibility="Collapsed" VerticalAlignment="Top" HorizontalAlignment="Center"
+                Margin="0,10,0,0" Padding="16,9,18,9" CornerRadius="20" BorderThickness="1"
+                Background="{DynamicResource SolidBackgroundFillColorTertiaryBrush}"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.35" />
+            </Border.Effect>
+            <StackPanel Orientation="Horizontal">
+                <local:LoadingRing VerticalAlignment="Center" />
+                <TextBlock Text="{x:Static local:Loc.Refreshing}" Margin="12,0,0,0" FontSize="13" VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Log -->
+        <Expander Grid.Row="4" Header="{x:Static local:Loc.Log}" Margin="0,12,0,0">
+            <TextBox x:Name="LogBox" IsReadOnly="True" Height="140" TextWrapping="NoWrap"
+                     FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
+        </Expander>
+    </Grid>
+
+    <!-- The settings replace the drive view in the same window -->
+    <local:SettingsView x:Name="SettingsPanel" Visibility="Collapsed" />
+
+    <!-- Dimming behind dialogs (like Windows 11 dialogs) -->
+    <Border x:Name="Smoke" Background="#66000000" Visibility="Collapsed" />
+    </Grid>
+</Window>
