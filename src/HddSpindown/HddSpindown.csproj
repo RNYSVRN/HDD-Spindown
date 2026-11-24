@@ -14,7 +14,7 @@
     <!-- WPF ThemeMode (Fluent) is marked as experimental. -->
     <NoWarn>$(NoWarn);WPF0001</NoWarn>
     <AssemblyName>HddSpindown</AssemblyName>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Product>HDD-Spindown</Product>
     <!-- Only ship German and English framework resources (smaller package) -->
     <SatelliteResourceLanguages>en;de</SatelliteResourceLanguages>

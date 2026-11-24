@@ -127,6 +127,7 @@ internal static class NativeMethods
     public const int CR_SUCCESS = 0;
     public const int CM_PROB_DISABLED = 22;
     public const uint DN_HAS_PROBLEM = 0x00000400;
+    public const uint DN_STARTED = 0x00000008;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct SP_DEVINFO_DATA { public int cbSize; public Guid ClassGuid; public int DevInst; public IntPtr Reserved; }
@@ -170,4 +171,17 @@ internal static class NativeMethods
 
     [DllImport("cfgmgr32.dll")]
     public static extern int CM_Get_DevNode_Status(out uint status, out uint problem, int devInst, int flags);
+
+    [DllImport("cfgmgr32.dll", CharSet = CharSet.Unicode)]
+    public static extern int CM_Locate_DevNode(out int devInst, string deviceId, int flags);
+
+    public const int CM_DISABLE_UI_NOT_OK = 0x4;
+    public const int CR_REMOVE_VETOED = 0x17;
+
+    /// <summary>Disables until the next Windows restart (no CM_DISABLE_PERSIST), refuses instead of scheduling a restart.</summary>
+    [DllImport("cfgmgr32.dll")]
+    public static extern int CM_Disable_DevNode(int devInst, int flags);
+
+    [DllImport("cfgmgr32.dll")]
+    public static extern int CM_Enable_DevNode(int devInst, int flags);
 }

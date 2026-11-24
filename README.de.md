@@ -40,9 +40,9 @@ Keine .NET-Installation nötig, alles ist enthalten. Voraussetzung: Windows 10 (
 
 - **Drei Modi je Platte**
   - *Sperren + schlafen*: Die Laufwerke werden gesperrt und ausgehängt, danach schläft die Platte
-  - *Offline + schlafen*: zusätzlich offline (am zuverlässigsten, nach einem Neustart wieder online)
-  - *Offline + schlafen + deaktivieren*: zusätzlich im Geräte-Manager deaktiviert
-- **Zustand live**: aktiv, schläft, gesperrt, offline; „schläft seit …“ bzw. „aufgeweckt um …“, auch wenn Windows die Platte selbst schlafen gelegt hat
+  - *Offline + schlafen*: zusätzlich offline (nach einem Neustart wieder online)
+  - *Offline + schlafen + deaktivieren*: schaltet die schlafende Platte zusätzlich im Geräte-Manager ab (von Windows bestätigt). Windows und andere Programme erreichen sie dann überhaupt nicht mehr, nur du weckst sie auf. Nach einem Windows-Neustart wieder normal da
+- **Zustand live**: aktiv, schläft, gesperrt, offline; „schläft seit …“ bzw. „aufgeweckt um …“, auch wenn Windows die Platte selbst schlafen gelegt hat; jedes Aufwachen, das nicht von HDD-Spindown kam, wird mit Uhrzeit protokolliert (auch in `log.txt`)
 - **Zeigt, was eine Platte blockiert**: Ist sie in Benutzung, listet ein Dialog die Programme auf, mit „Erneut versuchen“
 - **Beim Start schlafen**, **Mit Windows starten** (über die Aufgabenplanung, ohne UAC-Abfrage) und ein **Tray-Symbol** mit nativem Menü in hell/dunkel
 - **Etiketten** mit Farben (z. B. „Filme“, „Backup“)

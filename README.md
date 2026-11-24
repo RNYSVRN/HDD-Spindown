@@ -40,9 +40,9 @@ No .NET installation needed, everything is included. Requires Windows 10 (1809) 
 
 - **Three modes per drive**
   - *Lock + spin down*: volumes are locked and dismounted, then the drive spins down
-  - *Offline + spin down*: additionally takes the drive offline (most reliable, back online after a restart)
-  - *Offline + spin down + disable*: additionally disables the device in Device Manager
-- **Live status**: active, asleep, locked, offline; “asleep since …” / “woken at …”, even if Windows spun the drive down by itself
+  - *Offline + spin down*: additionally takes the drive offline (back online after a restart)
+  - *Offline + spin down + disable*: additionally switches the sleeping drive off in Device Manager (confirmed by Windows). Windows and other programs can no longer reach it at all, only you wake it up. Back as usual after a Windows restart
+- **Live status**: active, asleep, locked, offline; “asleep since …” / “woken at …”, even if Windows spun the drive down by itself; every wake-up that wasn't HDD-Spindown is logged with its time (also in `log.txt`)
 - **Shows what blocks a drive**: if a drive is in use, a dialog lists the programs holding it, with *Try again*
 - **Spin down at startup**, **Start with Windows** (via Task Scheduler, no UAC prompt) and a **tray icon** with a native, dark/light-aware menu
 - **Labels** with colors (e.g. “Movies”, “Backup”)

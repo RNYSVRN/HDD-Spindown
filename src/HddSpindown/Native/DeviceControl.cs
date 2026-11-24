@@ -4,10 +4,67 @@ using static HddSpindown.Native.NativeMethods;
 
 namespace HddSpindown.Native;
 
-/// <summary>Enables/disables a drive in Device Manager (like right-click -> Disable device).</summary>
+/// <summary>
+/// Enables/disables a drive (like Device Manager). Uses the Configuration Manager directly:
+/// it either really stops the device right away or refuses with a reason. The Device Manager
+/// install function (SetupDi... DIF_PROPERTYCHANGE) can instead report success while it only
+/// schedules the change for the next restart, which left drives reachable although they
+/// counted as disabled.
+/// </summary>
 public static class DeviceControl
 {
-    public static void SetEnabled(string instanceId, bool enabled)
+    public static void Disable(string instanceId)
+    {
+        int devInst = Locate(instanceId);
+        int cr = CM_Disable_DevNode(devInst, CM_DISABLE_UI_NOT_OK);
+        if (cr != CR_SUCCESS)
+            throw new InvalidOperationException(cr == CR_REMOVE_VETOED
+                ? Loc.T("Windows lässt das Deaktivieren nicht zu, weil die Platte noch verwendet wird.", "Windows does not allow disabling because the drive is still in use.")
+                : Loc.T($"Laufwerk konnte nicht deaktiviert werden (Code 0x{cr:X2}).", $"Could not disable drive (code 0x{cr:X2})."));
+        if (!WaitFor(() => IsReallyDisabled(instanceId), TimeSpan.FromSeconds(10)))
+            throw new InvalidOperationException(Loc.T("Windows hat das Laufwerk nicht wirklich deaktiviert.", "Windows did not really disable the drive."));
+    }
+
+    public static void Enable(string instanceId)
+    {
+        int devInst = Locate(instanceId);
+        int cr = CM_Enable_DevNode(devInst, 0);
+        if (cr == CR_SUCCESS && WaitFor(() => IsStarted(instanceId), TimeSpan.FromSeconds(20))) return;
+
+        // Disabled permanently elsewhere (e.g. Device Manager or an older version): enable via the install function
+        SetEnabledViaSetupApi(instanceId, true);
+        if (!WaitFor(() => IsStarted(instanceId), TimeSpan.FromSeconds(20)))
+            throw new InvalidOperationException(Loc.T("Windows hat das Laufwerk nicht wieder gestartet.", "Windows did not start the drive again."));
+    }
+
+    /// <summary>true = device is stopped and marked as disabled (no driver loaded, unreachable for everyone).</summary>
+    public static bool IsReallyDisabled(string instanceId) =>
+        CM_Locate_DevNode(out int devInst, instanceId, 0) == CR_SUCCESS
+        && CM_Get_DevNode_Status(out uint status, out uint problem, devInst, 0) == CR_SUCCESS
+        && (status & DN_STARTED) == 0 && (status & DN_HAS_PROBLEM) != 0 && problem == CM_PROB_DISABLED;
+
+    private static bool IsStarted(string instanceId) =>
+        CM_Locate_DevNode(out int devInst, instanceId, 0) == CR_SUCCESS
+        && CM_Get_DevNode_Status(out uint status, out _, devInst, 0) == CR_SUCCESS
+        && (status & DN_STARTED) != 0;
+
+    private static int Locate(string instanceId) =>
+        CM_Locate_DevNode(out int devInst, instanceId, 0) == CR_SUCCESS
+            ? devInst
+            : throw new InvalidOperationException(Loc.T("Laufwerk nicht gefunden: ", "Drive not found: ") + instanceId);
+
+    private static bool WaitFor(Func<bool> condition, TimeSpan timeout)
+    {
+        var until = DateTime.UtcNow + timeout;
+        while (true)
+        {
+            if (condition()) return true;
+            if (DateTime.UtcNow > until) return false;
+            Thread.Sleep(200);
+        }
+    }
+
+    private static void SetEnabledViaSetupApi(string instanceId, bool enabled)
     {
         var classGuid = GUID_DEVCLASS_DISKDRIVE;
         IntPtr set = SetupDiGetClassDevs(ref classGuid, IntPtr.Zero, IntPtr.Zero, DIGCF_PRESENT);

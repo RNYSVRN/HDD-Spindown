@@ -48,7 +48,8 @@ public sealed class AppSettings
 
     private static string AppData => Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
     public const string FolderName = "HDD-Spindown";
-    private static string FilePath => Path.Combine(AppData, FolderName, "settings.json");
+    public static string Folder => Path.Combine(AppData, FolderName);
+    private static string FilePath => Path.Combine(Folder, "settings.json");
     // Settings from earlier versions (folder "HddSpindown") are migrated once.
     private static readonly string[] LegacyFilePaths =
     [

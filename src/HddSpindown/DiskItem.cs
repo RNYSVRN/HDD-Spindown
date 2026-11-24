@@ -113,7 +113,7 @@ public sealed class DiskItem : INotifyPropertyChanged
 
     public string StateText =>
         Info.IsUnavailable ? Loc.T($"Nicht verfügbar (Code {Info.ProblemCode})", $"Unavailable (code {Info.ProblemCode})")
-        : Info.IsDisabled ? Loc.T("Deaktiviert", "Disabled")
+        : Info.IsDisabled ? (SleptAt is not null ? Loc.T("Schläft · deaktiviert", "Spun down · disabled") : Loc.T("Deaktiviert", "Disabled"))
         : Power == PowerState.Standby ? (Info.IsOffline ? Loc.T("Schläft · offline", "Spun down · offline") : IsLocked ? Loc.T("Schläft · gesperrt", "Spun down · locked") : Loc.T("Schläft", "Spun down"))
         : Info.IsOffline ? "Offline"
         : IsLocked ? Loc.T("Gesperrt", "Locked")
@@ -122,8 +122,8 @@ public sealed class DiskItem : INotifyPropertyChanged
 
     /// <summary>Green = active/online, blue = asleep, grey = offline/disabled.</summary>
     public string StateKind =>
-        Info.IsUnavailable || Info.IsDisabled || (Info.IsOffline && Power != PowerState.Standby) ? "Off"
-        : Power == PowerState.Standby ? "Sleep"
+        (Power == PowerState.Standby || (Info.IsDisabled && SleptAt is not null)) && !Info.IsUnavailable ? "Sleep"
+        : Info.IsUnavailable || Info.IsDisabled || Info.IsOffline ? "Off"
         : IsLocked ? "Locked"
         : "On";
 
@@ -156,7 +156,7 @@ public sealed class DiskItem : INotifyPropertyChanged
     public bool CanEdit => !IsReadOnly && !IsBusy && !Info.IsUnavailable;
     private bool CanAct => CanEdit && CanControl;
 
-    public bool CanSleep => CanAct && Info.DevicePath is not null && !(IsLocked && IsAsleep);
+    public bool CanSleep => CanAct && (Info.DevicePath is not null || IsLocked) && !(IsLocked && IsAsleep);
     public bool CanLock => CanAct && Info.DevicePath is not null && Mode != LockMode.SleepOnly && !IsLocked && !Info.IsOffline;
     public bool CanWake => CanAct && (NeedsWake || IsAsleep);
     public bool CanChangeMode => CanEdit && !IsLocked && !Info.IsOffline && !Info.IsDisabled;

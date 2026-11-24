@@ -582,7 +582,7 @@
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
 
-                                        <ComboBox Width="260"
+                                        <ComboBox Width="300"
                                                   IsEnabled="{Binding CanChangeMode}"
                                                   ItemsSource="{x:Static local:DiskItem.ModeOptions}"
                                                   SelectedItem="{Binding SelectedMode, Mode=TwoWay}"

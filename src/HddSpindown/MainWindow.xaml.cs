@@ -55,6 +55,7 @@ public partial class MainWindow : Window
         LoadDisks();
         _powerTimer.Start();
         _ = PollPowerAsync();
+        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
 
 #if DEBUG
         // Debug build only: HDDSPINDOWN_DEMO_INUSE=E: shows the "still in use" dialog with a real search (for testing without admin rights)
@@ -254,10 +255,60 @@ public partial class MainWindow : Window
         foreach (var d in _disks.ToList())
         {
             var info = d.Info;
-            if (info.Bus != BusKind.Ata || info.DevicePath is null || info.IsDisabled) { d.Power = PowerState.Unknown; continue; }
-            d.Power = await Task.Run(() => DiskControl.GetPowerState(info.DevicePath, info.Bus));
+            var old = d.Power;
+            PowerState now;
+            // A disabled drive can't be queried by anyone (that is the point of disabling it)
+            if (info.Bus != BusKind.Ata || info.DevicePath is null || info.IsDisabled)
+                now = PowerState.Unknown;
+            else
+                now = await Task.Run(() => DiskControl.GetPowerState(info.DevicePath, info.Bus));
+            d.Power = now;
+            ReportExternalWake(d, old, now);
         }
         RebuildTray();
+    }
+
+    private DateTime _resumedAt = DateTime.MinValue;
+
+    /// <summary>
+    /// A drive went from asleep to running without HDD-Spindown doing it. Always logged with the time,
+    /// so the cause can be found (log.txt). For a locked drive this must never happen.
+    /// </summary>
+    private void ReportExternalWake(DiskItem d, PowerState old, PowerState now)
+    {
+        if (old != PowerState.Standby || now != PowerState.Active || d.IsBusy) return;
+        // After the PC's own standby every drive gets power again; that is handled (and logged) separately
+        if (DateTime.Now - _resumedAt < TimeSpan.FromMinutes(2)) return;
+
+        if (d.IsLocked)
+        {
+            string msg = Loc.T("ist aufgewacht, obwohl sie von HDD-Spindown gesperrt ist. Das war nicht HDD-Spindown.",
+                               "woke up although HDD-Spindown has it locked. This was not HDD-Spindown.");
+            Log($"{d.Title}: {Loc.T("ACHTUNG", "WARNING")}, {msg}");
+            if (_settings.Notifications) _tray.Notify(d.Title, msg);
+        }
+        else
+        {
+            Log($"{d.Title}: " + Loc.T("wurde von Windows oder einem Programm aufgeweckt (Platte war nicht gesperrt).",
+                                       "was woken by Windows or a program (drive was not locked)."));
+        }
+    }
+
+    // ---------- PC standby ----------
+
+    /// <summary>When the PC resumes from standby, every drive gets power again and spins up: restore the sleep state.</summary>
+    private void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        if (e.Mode != Microsoft.Win32.PowerModes.Resume) return;
+        Dispatcher.BeginInvoke(async () =>
+        {
+            _resumedAt = DateTime.Now;
+            // Give the controller a moment to bring the ports up again
+            await Task.Delay(TimeSpan.FromSeconds(10));
+            _resumedAt = DateTime.Now;
+            await _controller.ReapplySleepAfterResumeAsync();
+            await PollPowerAsync();
+        });
     }
 
     // ---------- Actions ----------
@@ -265,13 +316,21 @@ public partial class MainWindow : Window
     private Task SleepAsync(DiskItem d, bool sleep) => Run(d,
         sleep ? Loc.T("Wird schlafen gelegt …", "Spinning down …") : Loc.T("Wird gesperrt …", "Locking …"),
         () => _controller.SleepAsync(d.Info, d.Mode, sleep),
-        onSuccess: () => { if (sleep) d.MarkAsleep(DateTime.Now); },
+        onSuccess: () =>
+        {
+            if (sleep) { d.MarkAsleep(DateTime.Now); d.Power = PowerState.Standby; }
+        },
         notifyText: sleep ? Loc.T("Schlafen gelegt", "Spun down") : Loc.T("Gesperrt", "Locked"));
 
     private Task WakeAsync(DiskItem d) => Run(d,
         Loc.T("Wird aufgeweckt …", "Waking up …"),
         () => _controller.WakeAsync(d.Info),
-        onSuccess: () => d.MarkAwake(DateTime.Now),
+        onSuccess: () =>
+        {
+            // Set the state right away, so the next query doesn't mistake our own wake for an external one
+            d.Power = PowerState.Active;
+            d.MarkAwake(DateTime.Now);
+        },
         notifyText: Loc.T("Aufgeweckt", "Woken up"));
 
     private async Task SleepAutoAsync()
@@ -468,14 +527,12 @@ public partial class MainWindow : Window
         if (_settings.DeactivateHintShown) return true;
         var answer = FluentDialog.Show(this,
             Loc.T("Laufwerk wirklich deaktivieren?", "Really disable the drive?"),
-            Loc.T("Im Modus „Offline + schlafen + deaktivieren“ wird die Platte zusätzlich im Geräte-Manager deaktiviert. " +
-                  "Das bleibt auch nach einem Neustart von Windows so.",
-                  "In “Offline + spin down + disable” mode the drive is also disabled in Device Manager. " +
-                  "This persists across Windows restarts."),
+            Loc.T("Im Modus „Offline + schlafen + deaktivieren“ wird die Platte nach dem Schlafbefehl im Geräte-Manager abgeschaltet. Windows und andere Programme erreichen sie dann nicht mehr, nur du weckst sie wieder auf.",
+                  "In “Offline + spin down + disable” mode the drive is switched off in Device Manager after the spin-down command. Windows and other programs can no longer reach it, only you wake it up again."),
             primary: Loc.T("Modus verwenden", "Use this mode"),
             close: Loc.T("Abbrechen", "Cancel"),
-            note: Loc.T("Nutzbar wird die Platte erst wieder, wenn du sie in HDD-Spindown aufweckst oder im Geräte-Manager aktivierst. Dieser Hinweis erscheint nur einmal.",
-                        "The drive only becomes usable again once you wake it in HDD-Spindown or enable it in Device Manager. This notice is shown only once."),
+            note: Loc.T("Nutzbar wird die Platte erst wieder, wenn du sie in HDD-Spindown aufweckst. Nach einem Neustart von Windows ist sie wieder normal da. Dieser Hinweis erscheint nur einmal.",
+                        "The drive only becomes usable again once you wake it in HDD-Spindown. After a Windows restart it is back as usual. This notice is shown only once."),
             glyph: "");
         if (answer != DialogResultKind.Primary) return false;
         _settings.DeactivateHintShown = true;
@@ -570,6 +627,7 @@ public partial class MainWindow : Window
 
         _exiting = true;
         _powerTimer.Stop();
+        Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         _tray.Dispose();
         if (restart) ((App)Application.Current).Restart();
         else Application.Current.Shutdown();
@@ -596,5 +654,6 @@ public partial class MainWindow : Window
     {
         LogBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {line}{Environment.NewLine}");
         LogBox.ScrollToEnd();
+        AppLog.Write(line);
     }
 }

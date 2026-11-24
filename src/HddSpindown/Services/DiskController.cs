@@ -33,21 +33,22 @@ public sealed class DiskController
     public Task SleepAsync(DiskInfo disk, LockMode mode, bool sleep = true) => Exclusive(async () =>
     {
         EnsureNotProtected(disk);
-        if (disk.DevicePath is null) throw new InvalidOperationException(Loc.T("Laufwerk ist deaktiviert – zuerst aufwecken.", "Drive is disabled – wake it up first."));
-        string path = disk.DevicePath;
         string name = disk.FriendlyName;
 
-        // Already locked? Then just spin it down again.
+        // Already locked (e.g. "Lock only" first)? Then just send the spin-down command.
         if (_sessions.TryGetValue(disk.InstanceId, out var existing))
         {
-            if (sleep && !existing.Disabled)
+            if (sleep)
             {
-                await Task.Run(() => DiskControl.Standby(path, disk.Bus));
+                await Task.Run(() => SpinDownSession(existing));
                 existing.Asleep = true;
-                Write(Loc.T($"{name}: erneut schlafen gelegt.", $"{name}: spun down again."));
+                Write(Loc.T($"{name}: schlafen gelegt.", $"{name}: spun down."));
             }
             return;
         }
+
+        if (disk.DevicePath is null) throw new InvalidOperationException(Loc.T("Laufwerk ist deaktiviert, zuerst aufwecken.", "Drive is disabled, wake it up first."));
+        string path = disk.DevicePath;
 
         var s = new Session { Disk = disk };
         await BatchHooks.RunAsync(BatchHooks.BeforeSleep, disk, disk.Volumes, Write);
@@ -105,15 +106,18 @@ public sealed class DiskController
                     }
                     else
                     {
-                        Write(Loc.T($"{name}: kein Schlafbefehl für diesen Typ ({disk.Bus}) – nur gesperrt.", $"{name}: no spin-down command for this type ({disk.Bus}) – locked only."));
+                        Write(Loc.T($"{name}: kein Schlafbefehl für diesen Typ ({disk.Bus}), nur gesperrt.", $"{name}: no spin-down command for this type ({disk.Bus}), locked only."));
                     }
                 }
 
+                // Disable last: a disabled drive can no longer be reached by anyone, not even by this app.
+                // Disabling does not wake a sleeping drive (checked on real hardware).
                 if (mode == LockMode.Deactivate)
                 {
-                    DeviceControl.SetEnabled(disk.InstanceId, false);
-                    s.Disabled = true;
-                    Write(Loc.T($"{name}: Gerät deaktiviert.", $"{name}: device disabled."));
+                    s.Disabled = true;   // set first, so a rollback re-enables it in any case
+                    DeviceControl.Disable(disk.InstanceId);
+                    Write(Loc.T($"{name}: Gerät deaktiviert (von Windows bestätigt), für Windows und alle Programme nicht mehr erreichbar.",
+                                $"{name}: device disabled (confirmed by Windows), no longer reachable for Windows and all programs."));
                 }
             });
         }
@@ -133,13 +137,13 @@ public sealed class DiskController
         EnsureNotProtected(disk);
         _sessions.TryGetValue(disk.InstanceId, out var s);
         string name = disk.FriendlyName;
-        var volumes = s?.Disk.Volumes ?? disk.Volumes;
+        var volumes = s?.Disk.Volumes is { Count: > 0 } known ? known : disk.Volumes;
 
         await Task.Run(() =>
         {
             if (s?.Disabled == true || disk.IsDisabled)
             {
-                DeviceControl.SetEnabled(disk.InstanceId, true);
+                DeviceControl.Enable(disk.InstanceId);
                 Write(Loc.T($"{name}: Gerät aktiviert.", $"{name}: device enabled."));
             }
 
@@ -168,6 +172,49 @@ public sealed class DiskController
         await BatchHooks.RunAsync(BatchHooks.AfterSleep, disk, volumes, Write);
     });
 
+    /// <summary>
+    /// Sends the spin-down command for a drive that is already locked. A disabled drive can't be reached,
+    /// so it is enabled briefly (still offline and locked), spun down and disabled again.
+    /// </summary>
+    private void SpinDownSession(Session s)
+    {
+        if (!s.Disabled)
+        {
+            DiskControl.Standby(s.Disk.DevicePath ?? throw new InvalidOperationException(Loc.T("Laufwerk ist nicht erreichbar.", "Drive is not reachable.")), s.Disk.Bus);
+            return;
+        }
+        DeviceControl.Enable(s.Disk.InstanceId);
+        string path = WaitForInterface(s.Disk.InstanceId, TimeSpan.FromSeconds(15))
+                      ?? throw new InvalidOperationException(Loc.T("Laufwerk ist nach dem Aktivieren nicht wieder aufgetaucht.", "Drive did not reappear after enabling."));
+        if (s.Offlined && !DiskControl.IsOffline(path)) DiskControl.SetOffline(path, true);
+        DiskControl.Standby(path, s.Disk.Bus);
+        DeviceControl.Disable(s.Disk.InstanceId);
+    }
+
+    /// <summary>
+    /// After the PC itself was in standby, every drive gets power again and spins up, no matter what was
+    /// set before. This restores the sleep state of the drives this app put to sleep (and only those).
+    /// </summary>
+    public Task ReapplySleepAfterResumeAsync() => Exclusive(async () =>
+    {
+        foreach (var s in _sessions.Values.Where(x => x.Asleep).ToList())
+        {
+            string name = s.Disk.FriendlyName;
+            try
+            {
+                await Task.Run(() =>
+                {
+                    // An enabled drive can be checked first; a disabled one can't be reached, so it is assumed running
+                    if (!s.Disabled && s.Disk.DevicePath is { } p && DiskControl.GetPowerState(p, s.Disk.Bus) == PowerState.Standby) return;
+                    SpinDownSession(s);
+                    Write(Loc.T($"{name}: lief nach dem Energiesparmodus des PCs, wieder schlafen gelegt.",
+                                $"{name}: was running after the PC resumed from sleep, spun down again."));
+                });
+            }
+            catch (Exception ex) { Write($"{name}: {ex.Message}"); }
+        }
+    });
+
     /// <summary>On exit, releases all locks and brings offline drives back online.</summary>
     public async Task ReleaseAllAsync()
     {
@@ -190,7 +237,7 @@ public sealed class DiskController
     {
         try
         {
-            if (s.Disabled) DeviceControl.SetEnabled(s.Disk.InstanceId, true);
+            if (s.Disabled && DeviceControl.IsReallyDisabled(s.Disk.InstanceId)) DeviceControl.Enable(s.Disk.InstanceId);
             if (s.Offlined && s.Disk.DevicePath is { } p) DiskControl.SetOffline(p, false);
         }
         catch (Exception ex) { Write(Loc.T($"Zurücksetzen fehlgeschlagen: {ex.Message}", $"Rollback failed: {ex.Message}")); }
