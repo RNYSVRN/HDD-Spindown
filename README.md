@@ -93,6 +93,10 @@ HDD-Spindown is free and stays that way. If it saves you some noise and a few wa
 
 Ideas and bug reports are welcome as [issues](https://github.com/RNYSVRN/HDD-Spindown/issues).
 
+## Credits
+
+The idea comes from [revoSleep](https://www.meinfach.net/revosleep/), a freeware tool that has sent hard drives to sleep for years. HDD-Spindown is an independent rewrite from scratch: it contains no code from revoSleep. For familiarity it follows the same conventions for the command line switches and the `beforeSleep.bat` / `afterSleep.bat` hooks.
+
 ## License
 
 [MIT](LICENSE) © 2026 Ronny Severin.

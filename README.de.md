@@ -93,6 +93,10 @@ HDD-Spindown ist kostenlos, und das bleibt so. Wenn dir die App etwas Ruhe und e
 
 Ideen und Fehlermeldungen gern als [Issue](https://github.com/RNYSVRN/HDD-Spindown/issues).
 
+## Danksagung
+
+Die Idee stammt von [revoSleep](https://www.meinfach.net/revosleep/), einem Freeware-Tool, das seit Jahren Festplatten schlafen legt. HDD-Spindown ist eine eigenständige Neuentwicklung von Grund auf und enthält keinen Code aus revoSleep. Damit der Umstieg leichtfällt, folgt es denselben Konventionen bei den Kommandozeilen-Schaltern und den Skripten `beforeSleep.bat` / `afterSleep.bat`.
+
 ## Lizenz
 
 [MIT](LICENSE) © 2026 Ronny Severin.
